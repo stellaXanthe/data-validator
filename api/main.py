@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,17 +15,21 @@ from .models import (
 )
 from .connector_factory import build_connector
 
+logger = logging.getLogger("data_validator")
+logging.basicConfig(level=logging.INFO)
+
 app = FastAPI(
     title="Data Validator API",
-    description="Validates data flow between source and target systems — schema matching, row comparison, duplicate detection.",
+    description="Validates data flow between source and target systems — schema matching, row comparison, duplicate detection. No data or credentials are stored or logged.",
     version="1.0.0",
 )
 
-# Adjust allowed origins once you know where the frontend will be hosted
+# In production, replace "*" with your actual frontend domain, e.g.
+# allow_origins=["https://data-validator-ui.vercel.app"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten this before production use
-    allow_methods=["*"],
+    allow_origins=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -36,6 +41,9 @@ def health_check():
 
 @app.post("/connections/test", response_model=ConnectionTestResponse)
 def test_connection(request: ConnectionTestRequest):
+    # Log only the connection TYPE — never the credentials/connection string
+    logger.info(f"Connection test requested: type={request.connection.type}")
+
     try:
         connector, _ = build_connector(request.connection)
         success = connector.test_connection()
@@ -44,11 +52,16 @@ def test_connection(request: ConnectionTestRequest):
             message="Connection successful" if success else "Connection failed",
         )
     except Exception as e:
-        return ConnectionTestResponse(success=False, message=str(e))
+        logger.error(f"Connection test failed with error type: {type(e).__name__}")
+        return ConnectionTestResponse(success=False, message="Connection failed. Please check your details.")
 
 
 @app.post("/validate", response_model=ValidationResponse)
 def validate(request: ValidationRequest):
+    # Log only non-sensitive metadata — NEVER the full request body,
+    # which may contain connection strings, access tokens, or file paths.
+    logger.info(f"Validation requested: source_type={request.source.type}, target_type={request.target.type}")
+
     try:
         source_connector, source_table = build_connector(request.source)
         target_connector, target_table = build_connector(request.target)
@@ -70,6 +83,8 @@ def validate(request: ValidationRequest):
 
         schema_diff = compare_schemas(source_schema, target_schema, field_map)
 
+        # Data is loaded into memory only for the duration of this request.
+        # It is never written to disk, logged, or persisted anywhere.
         source_df = source_connector.read_data(source_table)
         target_df = target_connector.read_data(target_table)
 
@@ -79,6 +94,13 @@ def validate(request: ValidationRequest):
             field_map,
             key_columns=request.key_columns,
             sample_limit=request.sample_limit,
+        )
+
+        logger.info(
+            f"Validation complete: matched={result.matched_rows}, "
+            f"mismatches={result.value_mismatches}, "
+            f"missing_in_target={result.missing_in_target}, "
+            f"missing_in_source={result.missing_in_source}"
         )
 
         return ValidationResponse(
@@ -104,4 +126,10 @@ def validate(request: ValidationRequest):
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Validation failed: {e}")
+        # Log only the error TYPE, never the full message — some database
+        # drivers embed the connection string/credentials in error text.
+        logger.error(f"Validation failed with error type: {type(e).__name__}")
+        raise HTTPException(
+            status_code=500,
+            detail="Validation failed. Please check your connection details and try again.",
+        )
