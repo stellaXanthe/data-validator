@@ -1,4 +1,6 @@
 import logging
+from fastapi import Depends
+from .auth import get_current_user
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -55,9 +57,10 @@ def test_connection(request: ConnectionTestRequest):
         logger.error(f"Connection test failed with error type: {type(e).__name__}")
         return ConnectionTestResponse(success=False, message="Connection failed. Please check your details.")
 
-
 @app.post("/validate", response_model=ValidationResponse)
-def validate(request: ValidationRequest):
+def validate(request: ValidationRequest, user_id: str = Depends(get_current_user)):
+    logger.info(f"Validation requested by user={user_id}: source_type={request.source.type}, target_type={request.target.type}")
+    # ...rest unchanged...
     # Log only non-sensitive metadata — NEVER the full request body,
     # which may contain connection strings, access tokens, or file paths.
     logger.info(f"Validation requested: source_type={request.source.type}, target_type={request.target.type}")
@@ -133,3 +136,4 @@ def validate(request: ValidationRequest):
             status_code=500,
             detail="Validation failed. Please check your connection details and try again.",
         )
+   
