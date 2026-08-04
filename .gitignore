@@ -22,3 +22,7 @@ target.csv
 # OS
 .DS_Store
 Thumbs.db
+
+
+#deployzip
+deploy.zip
