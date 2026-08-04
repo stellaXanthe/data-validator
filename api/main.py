@@ -32,14 +32,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# In production, replace "*" with your actual frontend domain, e.g.
-# allow_origins=["https://data-validator-ui.vercel.app"]
+# ↓↓↓ THIS is the part that changed — your real Vercel frontend URL ↓↓↓
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://data-validator-ui.vercel.app"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+# ↑↑↑ ---------------------------------------------------------- ↑↑↑
 
 
 def get_or_create_user(db: Session, user_id: str) -> User:
@@ -111,8 +111,6 @@ def validate(
 
         schema_diff = compare_schemas(source_schema, target_schema, field_map)
 
-        # Data is loaded into memory only for the duration of this request.
-        # It is never written to disk, logged, or persisted anywhere.
         source_df = source_connector.read_data(source_table)
         target_df = target_connector.read_data(target_table)
 
