@@ -1,0 +1,1 @@
+uvicorn api.main:app --reload --reload-dir api --reload-dir validator
